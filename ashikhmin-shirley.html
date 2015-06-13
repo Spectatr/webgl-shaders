@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<style>
+			body {
+				background:#000;
+				color:#fff;
+				padding:0;
+				margin:0;
+				overflow:hidden;
+			}
+		</style>
+
+	</head>
+	<body>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r71/three.min.js"></script>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
+		<script src="js/loaders/PLYLoader.js"></script>
+		<script src="js/loaders/STLLoader.js"></script>
+		<script src="js/Detector.js"></script>
+		<script src="js/stats.min.js"></script>
+		<script src="js/dat.gui.min.js"></script>
+
+		<script id="fragment_shader" type="x-shader/x-fragment">
+			uniform vec3 LightDirection1;
+			uniform vec3 specularColor;
+			uniform vec3 diffuseColor;
+			uniform float Rs;
+			uniform float Rd;
+			uniform float nu;
+			uniform float nv;
+
+			varying vec3 vnormal;
+			varying vec3 vpos;
+
+			const float pi8 = 8.0 * 3.14159265358979323846264;
+			const float pi2823 = 28.0 / (23.0 * 3.14159265358979323846264);
+
+			void main()
+			{
+				vec3 eyeDir = normalize(-vpos);
+				vec3 k1 = normalize(-LightDirection1); //to light
+				vec3 k2 = eyeDir; //to viewer
+				vec3 h = normalize(k1 + k2);
+				vec3 n = normalize(vnormal);
+				vec3 u = cross(-eyeDir, vnormal);
+				vec3 v = cross(vnormal, u);
+
+				float rho_specular = 0.0;
+				float rho_diffuse = 0.0;
+
+				float NdotK1 = dot(n, k1);
+				float NdotK2 = dot(n, k2);
+
+				if (NdotK1 > 0.0 && NdotK2 > 0.0){
+					float HdotK = dot(h, k1);
+					float HdotU = dot(h, u);
+					float HdotV = dot(h, v);
+					float HdotN = dot(h, n);
+
+					float exponent = nu*HdotU*HdotU + nv*HdotV*HdotV;
+					exponent /= 1.0 - HdotN*HdotN;
+					float numerator = sqrt((nu + 1.0) * (nv + 1.0));
+					numerator *= pow(HdotN, exponent);
+					float F = Rs + (1.0 - Rs)*pow(1.0 - (HdotK), 5.0);
+					numerator *= F;
+					float denominator = pi8 * max(NdotK1, NdotK2) * HdotK;
+					rho_specular = numerator / denominator;
+
+					rho_diffuse = pi2823 * Rd;
+					rho_diffuse *= 1.0 - Rs;
+					rho_diffuse *= 1.0 - pow(1.0 - (NdotK1 / 2.0), 5.0);
+					rho_diffuse *= 1.0 - pow(1.0 - (NdotK2 / 2.0), 5.0);
+				}
+
+	   			vec3 finalValue = specularColor * rho_specular + diffuseColor * rho_diffuse;
+			    gl_FragColor = vec4(finalValue, 1.0);
+			}
+
+		</script>
+
+		<script id="vertex_shader" type="x-shader/x-vertex">
+
+			varying vec3 LightDir[2];
+			varying vec3 vnormal;
+			varying vec3 vpos;
+
+			void main()
+			{
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+
+			    // vertex normal
+				vnormal = normalize(normalMatrix * normal);
+
+				// vertex position
+				vpos = vec3(modelViewMatrix * vec4(position, 1.0));
+			}
+
+		</script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var container, stats;
+
+			var camera, cameraTarget, scene, renderer;
+
+			var mesh;
+
+			var material, uniforms;
+
+			var clock = new THREE.Clock();
+
+			var rotationSpeed = 0.8;
+
+			var effectController = {
+				'rotationSpeed' : 0.8,
+				'specularColor' : [255, 255, 255],
+				'diffuseColor' : [255, 25, 25],
+				'Rs': 0.2,
+				'Rd' : 0.8,
+				"nu" : 1000.0,
+				"nv" : 1000.0
+			};
+
+			init();
+			initGUI();
+			animate();
+
+			function init() {
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+
+				camera = new THREE.PerspectiveCamera( 35, window.innerWidth / window.innerHeight, 1, 15 );
+				camera.position.set( 3, 1, 3 );
+
+				cameraTarget = new THREE.Vector3( 0, -0.25, 0 );
+
+				scene = new THREE.Scene();
+				scene.fog = new THREE.Fog( 0x72645b, 2, 30 );
+
+				//shader uniforms
+
+				uniforms = {
+
+					LightDirection1: { type: "v3", value: new THREE.Vector3(0, -1, -1) },
+					specularColor: { type: "v3", value: new THREE.Vector3(1.0, 1.0, 1.0) },
+					diffuseColor: { type: "v3", value: new THREE.Vector3(1.0, 0.1, 0.1) },
+					Rs: { type: "f", value: 0.2 },
+					Rd: { type: "f", value: 0.8 },
+					nu: { type: "f", value: 1000.0 },
+					nv: { type: "f", value: 1000.0 }
+
+				};
+
+				// Ground
+
+				var plane = new THREE.Mesh(
+
+					new THREE.PlaneBufferGeometry( 40, 40 ),
+					new THREE.MeshPhongMaterial( { color: 0x999999, specular: 0x101010 } )
+
+				);
+				plane.rotation.x = -Math.PI/2;
+				plane.position.y = -0.5;
+				scene.add( plane );
+
+				plane.receiveShadow = true;
+
+
+				// PLY file
+				
+				var loader = new THREE.PLYLoader();
+				loader.addEventListener( 'load', function ( event ) {
+
+					var geometry = event.content;
+					material = new THREE.ShaderMaterial( {
+
+						uniforms: uniforms,
+						vertexShader: document.getElementById( 'vertex_shader' ).textContent,
+						fragmentShader: document.getElementById( 'fragment_shader' ).textContent
+
+						} );
+
+					geometry.computeFaceNormals();
+					geometry.computeVertexNormals();
+					mesh = new THREE.Mesh( geometry, material );
+					mesh.position.set( 0, -.7, 0 );
+					mesh.rotation.set( 0, - Math.PI / 2, 0 );
+					mesh.scale.set( 7, 7, 7 );
+
+					mesh.castShadow = true;
+					mesh.receiveShadow = true;
+
+					scene.add( mesh );
+
+				} );
+				loader.load( './models/dragon100k.ply' );
+
+				// Lights
+
+				scene.add( new THREE.AmbientLight( 0x777777 ) );
+
+				addShadowedLight( 0, 1, 1, 0xffffff, 1.35 );
+
+				// renderer
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setClearColor( 0x72645b );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.setFaceCulling ( "back", "ccw" );
+
+				renderer.gammaInput = true;
+				renderer.gammaOutput = true;
+
+				renderer.shadowMapEnabled = true;
+				renderer.shadowMapCullFace = THREE.CullFaceBack;
+
+				container.appendChild( renderer.domElement );
+
+				// stats
+
+				stats = new Stats();
+				stats.domElement.style.position = 'absolute';
+				stats.domElement.style.top = '0px';
+				container.appendChild( stats.domElement );
+
+				// resize
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+			}
+
+			function addShadowedLight( x, y, z, color, intensity ) {
+
+				var directionalLight = new THREE.DirectionalLight( color, intensity );
+				directionalLight.position.set( x, y, z )
+				scene.add( directionalLight );
+
+				directionalLight.castShadow = true;
+				// directionalLight.shadowCameraVisible = true;
+
+				var d = 1;
+				directionalLight.shadowCameraLeft = -d;
+				directionalLight.shadowCameraRight = d;
+				directionalLight.shadowCameraTop = d;
+				directionalLight.shadowCameraBottom = -d;
+
+				directionalLight.shadowCameraNear = 1;
+				directionalLight.shadowCameraFar = 4;
+
+				directionalLight.shadowMapWidth = 1024;
+				directionalLight.shadowMapHeight = 1024;
+
+				directionalLight.shadowBias = -0.005;
+				directionalLight.shadowDarkness = 0.15;
+
+			}
+
+			function guiChanged() {
+
+				rotationSpeed = effectController.rotationSpeed;
+				
+				//bug in dat.gui - color returns hex value instead of rgb
+				function cutHex(h) {return (h.charAt(0)=="#") ? h.substring(1,7):h}
+				if(typeof(effectController.specularColor) == "string"){
+					var temp = [0, 0, 0];
+					temp[0] = parseInt(((effectController.specularColor).substring(1,7)).substring(0,2),16);
+					temp[1] = parseInt(((effectController.specularColor).substring(1,7)).substring(2,4),16);
+					temp[2] = parseInt(((effectController.specularColor).substring(1,7)).substring(4,6),16);
+					uniforms[ 'specularColor' ].value = new THREE.Vector3().fromArray( temp ).divideScalar( 255 );
+				}
+				else{
+					uniforms[ 'specularColor' ].value = new THREE.Vector3().fromArray( effectController.specularColor ).divideScalar( 255 );
+				}
+
+				if(typeof(effectController.diffuseColor) == "string"){
+					var temp = [0, 0, 0];
+					temp[0] = parseInt(((effectController.diffuseColor).substring(1,7)).substring(0,2),16);
+					temp[1] = parseInt(((effectController.diffuseColor).substring(1,7)).substring(2,4),16);
+					temp[2] = parseInt(((effectController.diffuseColor).substring(1,7)).substring(4,6),16);
+					uniforms[ 'diffuseColor' ].value = new THREE.Vector3().fromArray( temp ).divideScalar( 255 );
+				}
+				else{
+					uniforms[ 'diffuseColor' ].value = new THREE.Vector3().fromArray( effectController.diffuseColor ).divideScalar( 255 );
+				}
+
+				uniforms[ 'Rs' ].value = effectController.Rs;
+				uniforms[ 'Rd' ].value = effectController.Rd;
+				uniforms[ 'nu' ].value = effectController.nu;
+				uniforms[ 'nv' ].value = effectController.nv;
+
+			}
+
+			function initGUI() {
+
+				var gui = new dat.GUI();
+
+				gui.add( effectController, 'rotationSpeed', 0.0, 5.0, 0.1 ).onChange( guiChanged );
+				gui.addColor( effectController , 'specularColor' ).onChange( guiChanged );
+				gui.addColor( effectController , 'diffuseColor' ).onChange( guiChanged );
+				gui.add( effectController, 'Rs', 0.0, 1.0, 0.01 ).onChange( guiChanged );
+				gui.add( effectController, 'Rd', 0.0, 1.0, 0.01 ).onChange( guiChanged );
+				gui.add( effectController, 'nu', 0.0, 10000.0, 1 ).onChange( guiChanged );
+				gui.add( effectController, 'nv', 0.0, 10000.0, 1 ).onChange( guiChanged );
+
+				guiChanged();
+			}
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				render();
+				stats.update();
+
+			}
+
+			function render() {
+
+				var delta = clock.getDelta();
+
+				mesh.rotation.y += -delta * rotationSpeed;
+
+				camera.lookAt( cameraTarget );
+
+				renderer.render( scene, camera );
+
+			}
+
+		</script>
+</body>
+</html>
