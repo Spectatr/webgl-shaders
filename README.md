@@ -1,3 +1,3 @@
 webgl-shaders
 ===============
-WebGL shaders that I built during my spare time, as a novice.
+WebGL shaders that I made during my spare time using three.js. I'm a beginner, so my code may be horribly unoptimized.
