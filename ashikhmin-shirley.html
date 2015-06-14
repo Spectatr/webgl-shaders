@@ -38,9 +38,9 @@
 
 			void main()
 			{
-				vec3 eyeDir = normalize(-vpos);
-				vec3 k1 = normalize(-LightDirection1); //to light
-				vec3 k2 = eyeDir; //to viewer
+				vec3 eyeDir = normalize(-vpos); // to eye
+				vec3 k1 = normalize(-LightDirection1); // to light
+				vec3 k2 = eyeDir;
 				vec3 h = normalize(k1 + k2);
 				vec3 n = normalize(vnormal);
 				vec3 u = cross(-eyeDir, vnormal);
@@ -58,6 +58,7 @@
 					float HdotV = dot(h, v);
 					float HdotN = dot(h, n);
 
+					// specular
 					float exponent = nu*HdotU*HdotU + nv*HdotV*HdotV;
 					exponent /= 1.0 - HdotN*HdotN;
 					float numerator = sqrt((nu + 1.0) * (nv + 1.0));
@@ -67,6 +68,7 @@
 					float denominator = pi8 * max(NdotK1, NdotK2) * HdotK;
 					rho_specular = numerator / denominator;
 
+					// diffuse
 					rho_diffuse = pi2823 * Rd;
 					rho_diffuse *= 1.0 - Rs;
 					rho_diffuse *= 1.0 - pow(1.0 - (NdotK1 / 2.0), 5.0);

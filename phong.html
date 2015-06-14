@@ -38,25 +38,19 @@
 				vec4 diffuse = vec4(0.0);
 				vec4 specular = vec4(0.0);
 				
-				// ambient term
+				// ambient
 				vec4 ambient = vec4(ambientColor, 1.0);
-				
-				// diffuse color
+
+				// diffuse
 				vec4 kd = vec4(diffuseColor, 1.0);
-				
-				// specular color
-				vec4 ks = vec4(specularColor, 1.0);
-				
-				// diffuse term
-				//vec3 lightPos = (vec4(LightDirection1, 1.0)).xyz;
-				//vec3 lightDir = normalize(lightPos - vpos);
 				vec3 lightDir = normalize(-LightDirection1);
 				float NdotL = dot(n, lightDir);
 				
 				if (NdotL > 0.0)
 					diffuse = kd * NdotL;
 				
-				// specular term
+				// specular
+				vec4 ks = vec4(specularColor, 1.0);
 				vec3 rVector = normalize(2.0 * n * NdotL - lightDir);
 				vec3 viewVector = normalize(-vpos);
 				float RdotV = dot(rVector, viewVector);
